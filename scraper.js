@@ -11,6 +11,8 @@ async function loginLinkedIn(page, email, password) {
   await page.click('button[type="submit"]');
   await page.waitForTimeout(5000);
 
+  console.log('Current URL after login:', page.url()); // <-- add this
+
   if (page.url().includes('feed') || page.url().includes('mynetwork')) {
     console.log('✓ Login successful');
     return true;
