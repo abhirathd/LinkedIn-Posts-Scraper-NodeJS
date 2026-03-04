@@ -104,7 +104,7 @@ async function scrapeProfilePosts(page, profileUrl, numPosts = 20) {
 async function scrapeMultipleProfiles(profileUrls, email, password, numPosts = 20) {
   const allResults = {};
 
-  const browser = await chromium.launch({ headless: false });
+  const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     viewport: { width: 1920, height: 1080 },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
