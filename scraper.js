@@ -1,27 +1,6 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 
-const EMAIL = 'unruly.abhirath@gmail.com';
-const PASSWORD = 'Abhi@2002';
-
-async function loginLinkedIn(page, email, password) {
-  await page.goto('https://www.linkedin.com/login');
-  await page.fill('#username', email);
-  await page.fill('#password', password);
-  await page.click('button[type="submit"]');
-  await page.waitForTimeout(5000);
-
-  console.log('Current URL after login:', page.url()); // <-- add this
-
-  if (page.url().includes('feed') || page.url().includes('mynetwork')) {
-    console.log('✓ Login successful');
-    return true;
-  }
-
-  console.log('✗ Login failed - check credentials or CAPTCHA');
-  return false;
-}
-
 async function scrapeProfilePosts(page, profileUrl, numPosts = 20) {
   console.log('\n' + '='.repeat(60));
   console.log(`Scraping: ${profileUrl}`);
@@ -103,22 +82,39 @@ async function scrapeProfilePosts(page, profileUrl, numPosts = 20) {
   return posts;
 }
 
-async function scrapeMultipleProfiles(profileUrls, email, password, numPosts = 20) {
+async function scrapeMultipleProfiles(profileUrls, numPosts = 20) {
   const allResults = {};
+
+  // Load cookies
+  if (!fs.existsSync('cookies.json')) {
+    console.log('✗ cookies.json not found. Run save_cookies.js first.');
+    process.exit(1);
+  }
+  const cookies = JSON.parse(fs.readFileSync('cookies.json', 'utf-8'));
+  console.log(`✓ Loaded ${cookies.length} cookies`);
 
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     viewport: { width: 1920, height: 1080 },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
   });
+
+  // Inject cookies instead of logging in
+  await context.addCookies(cookies);
+
   const page = await context.newPage();
 
-  // Login once
-  const loggedIn = await loginLinkedIn(page, email, password);
-  if (!loggedIn) {
+  // Verify session is valid
+  console.log('Verifying session...');
+  await page.goto('https://www.linkedin.com/feed');
+  await page.waitForTimeout(3000);
+
+  if (!page.url().includes('feed')) {
+    console.log('✗ Session invalid or cookies expired. Re-run save_cookies.js to get fresh cookies.');
     await browser.close();
-    return {};
+    process.exit(1);
   }
+  console.log('✓ Session valid, starting scrape...');
 
   // Scrape each profile
   for (const profileUrl of profileUrls) {
@@ -132,7 +128,6 @@ async function scrapeMultipleProfiles(profileUrls, email, password, numPosts = 2
         repost_count: posts.filter(p => p.is_repost).length,
       };
 
-      // Delay between profiles
       await page.waitForTimeout(3000);
     } catch (e) {
       console.log(`✗ Failed to scrape ${profileUrl}: ${e.message}`);
@@ -155,7 +150,7 @@ async function scrapeMultipleProfiles(profileUrls, email, password, numPosts = 2
     // Add more profiles here
   ];
 
-  const results = await scrapeMultipleProfiles(profiles, EMAIL, PASSWORD, 20);
+  const results = await scrapeMultipleProfiles(profiles, 20);
 
   // Print summary
   console.log('\n' + '='.repeat(60));
@@ -171,7 +166,6 @@ async function scrapeMultipleProfiles(profileUrls, email, password, numPosts = 2
     }
   }
 
-  // Save to file
   fs.writeFileSync('linkedin_posts.json', JSON.stringify(results, null, 2), 'utf-8');
   console.log('\n✓ Results saved to linkedin_posts.json');
 })();
