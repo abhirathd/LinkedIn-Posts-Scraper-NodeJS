@@ -151,7 +151,7 @@ async function scrapeMultipleProfiles(profileUrls, numPosts = 20) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 (async () => {
   const profiles = [
-    'https://www.linkedin.com/in/ACwAAAvx0X4Be8Yngdw6ctjVJCz0T9L0kxkJK3g/',
+    'https://www.linkedin.com/in/nataliestones/',
     // Add more profiles here
   ];
 
