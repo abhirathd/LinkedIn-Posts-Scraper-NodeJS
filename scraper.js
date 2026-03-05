@@ -6,7 +6,12 @@ async function scrapeProfilePosts(page, profileUrl, numPosts = 20) {
   console.log(`Scraping: ${profileUrl}`);
   console.log('='.repeat(60));
 
-  const activityUrl = `${profileUrl.replace(/\/$/, '')}/recent-activity/all/`;
+  // Navigate to the profile first to resolve any redirects (e.g. numeric ID → vanity URL)
+  await page.goto(profileUrl);
+  await page.waitForTimeout(2000);
+  const resolvedUrl = page.url().replace(/\/$/, '');
+  const activityUrl = `${resolvedUrl}/recent-activity/all/`;
+  console.log(`Resolved URL: ${resolvedUrl}`);
   await page.goto(activityUrl);
   await page.waitForTimeout(4000);
 
@@ -146,7 +151,7 @@ async function scrapeMultipleProfiles(profileUrls, numPosts = 20) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 (async () => {
   const profiles = [
-    'https://www.linkedin.com/in/nataliestones/',
+    'https://www.linkedin.com/in/ACwAAAvx0X4Be8Yngdw6ctjVJCz0T9L0kxkJK3g/',
     // Add more profiles here
   ];
 

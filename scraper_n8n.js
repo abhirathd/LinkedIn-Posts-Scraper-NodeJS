@@ -125,7 +125,12 @@ async function scrapeProfilePosts(profileUrl, numPosts = 20) {
   console.log(`[PROFILE] Scraping: ${profileUrl}`);
   console.log('='.repeat(60));
 
-  const activityUrl = `${profileUrl.replace(/\/$/, '')}/recent-activity/all/`;
+  // Navigate to the profile first to resolve any redirects (e.g. numeric ID → vanity URL)
+  await pageProfile.goto(profileUrl);
+  await pageProfile.waitForTimeout(2000);
+  const resolvedUrl = pageProfile.url().replace(/\/$/, '');
+  const activityUrl = `${resolvedUrl}/recent-activity/all/`;
+  console.log(`[PROFILE] Resolved URL: ${resolvedUrl}`);
   await pageProfile.goto(activityUrl);
   await pageProfile.waitForTimeout(4000);
 
@@ -291,7 +296,6 @@ app.post('/scrape', async (req, res) => {
     });
   } catch (e) {
     console.error(`[PROFILE] Error: ${e.message}`);
-    // Reset so next request re-initializes
     isInitializedProfile = false;
     return res.status(500).json({
       success: false,
