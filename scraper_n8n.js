@@ -38,7 +38,7 @@ async function initProfileBrowser() {
   }
 
   console.log('[PROFILE] Initializing browser with cookies...');
-  browserProfile = await chromium.launch({ headless: false });
+  browserProfile = await chromium.launch({ headless: true });
   contextProfile = await browserProfile.newContext({
     viewport: { width: 1920, height: 1080 },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -71,7 +71,7 @@ async function initCompanyBrowser() {
   }
 
   console.log('[COMPANY] Initializing browser with cookies...');
-  browserCompany = await chromium.launch({ headless: false });
+  browserCompany = await chromium.launch({ headless: true });
   contextCompany = await browserCompany.newContext({
     viewport: { width: 1920, height: 1080 },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
