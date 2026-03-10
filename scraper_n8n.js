@@ -6,14 +6,13 @@ const fs = require('fs');
 const app = express();
 app.use(express.json());
 
-// ─── Profile browser state ────────────────────────────────────────────────────
+// ─── Shared browser state ─────────────────────────────────────────────────────
 let browserProfile = null;
 let contextProfile = null;
 let pageProfile = null;
 let isInitializedProfile = false;
 const profileLock = new Mutex();
 
-// ─── Company browser state ────────────────────────────────────────────────────
 let browserCompany = null;
 let contextCompany = null;
 let pageCompany = null;
@@ -39,25 +38,23 @@ async function initProfileBrowser() {
   }
 
   console.log('[PROFILE] Initializing browser with cookies...');
-  browserProfile = await chromium.launch({ headless: true });
+  browserProfile = await chromium.launch({ headless: false });
   contextProfile = await browserProfile.newContext({
     viewport: { width: 1920, height: 1080 },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
   });
 
-  // Inject cookies
   const cookies = loadCookies();
   await contextProfile.addCookies(cookies);
 
   pageProfile = await contextProfile.newPage();
 
-  // Verify session
   console.log('[PROFILE] Verifying session...');
   await pageProfile.goto('https://www.linkedin.com/feed');
   await pageProfile.waitForTimeout(3000);
 
   if (!pageProfile.url().includes('feed')) {
-    console.log('[PROFILE] ✗ Session invalid or cookies expired. Re-run save_cookies.js to get fresh cookies.');
+    console.log('[PROFILE] ✗ Session invalid or cookies expired.');
     isInitializedProfile = false;
     return false;
   }
@@ -74,25 +71,23 @@ async function initCompanyBrowser() {
   }
 
   console.log('[COMPANY] Initializing browser with cookies...');
-  browserCompany = await chromium.launch({ headless: true });
+  browserCompany = await chromium.launch({ headless: false });
   contextCompany = await browserCompany.newContext({
     viewport: { width: 1920, height: 1080 },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
   });
 
-  // Inject cookies
   const cookies = loadCookies();
   await contextCompany.addCookies(cookies);
 
   pageCompany = await contextCompany.newPage();
 
-  // Verify session
   console.log('[COMPANY] Verifying session...');
   await pageCompany.goto('https://www.linkedin.com/feed');
   await pageCompany.waitForTimeout(3000);
 
   if (!pageCompany.url().includes('feed')) {
-    console.log('[COMPANY] ✗ Session invalid or cookies expired. Re-run save_cookies.js to get fresh cookies.');
+    console.log('[COMPANY] ✗ Session invalid or cookies expired.');
     isInitializedCompany = false;
     return false;
   }
@@ -106,6 +101,9 @@ async function cleanupBrowsers() {
   if (browserProfile) {
     try {
       await browserProfile.close();
+      browserProfile = null;
+      contextProfile = null;
+      pageProfile = null;
       isInitializedProfile = false;
       console.log('[PROFILE] Browser closed');
     } catch (_) {}
@@ -113,6 +111,9 @@ async function cleanupBrowsers() {
   if (browserCompany) {
     try {
       await browserCompany.close();
+      browserCompany = null;
+      contextCompany = null;
+      pageCompany = null;
       isInitializedCompany = false;
       console.log('[COMPANY] Browser closed');
     } catch (_) {}
@@ -125,7 +126,6 @@ async function scrapeProfilePosts(profileUrl, numPosts = 20) {
   console.log(`[PROFILE] Scraping: ${profileUrl}`);
   console.log('='.repeat(60));
 
-  // Navigate to the profile first to resolve any redirects (e.g. numeric ID → vanity URL)
   await pageProfile.goto(profileUrl);
   await pageProfile.waitForTimeout(2000);
   const resolvedUrl = pageProfile.url().replace(/\/$/, '');
@@ -259,7 +259,96 @@ async function scrapeCompanyPosts(companyUrl, numPosts = 20) {
   return posts;
 }
 
-// ─── Routes ───────────────────────────────────────────────────────────────────
+// ─── Session management routes ────────────────────────────────────────────────
+
+/**
+ * POST /start-session
+ * Call once at the start of your n8n flow.
+ * Launches both browsers and verifies the LinkedIn session.
+ */
+app.post('/start-session', async (req, res) => {
+  console.log('\n[SESSION] Starting session...');
+
+  const profileRelease = await profileLock.acquire();
+  // const companyRelease = await companyLock.acquire();
+
+  try {
+    const profileOk = await initProfileBrowser();
+    if (!profileOk) {
+      return res.status(500).json({
+        success: false,
+        message: 'Profile browser session invalid or cookies expired. Re-run save_cookies.js.',
+        error: 'session_invalid',
+      });
+    }
+
+    // const companyOk = await initCompanyBrowser();
+    // if (!companyOk) {
+    //   return res.status(500).json({
+    //     success: false,
+    //     message: 'Company browser session invalid or cookies expired. Re-run save_cookies.js.',
+    //     error: 'session_invalid',
+    //   });
+    // }
+
+    console.log('[SESSION] ✓ Both browsers ready');
+    return res.json({
+      success: true,
+      message: 'Session started. Both profile and company browsers are ready.',
+      profile_browser: isInitializedProfile,
+      // company_browser: isInitializedCompany,
+    });
+  } catch (e) {
+    console.error(`[SESSION] Error starting session: ${e.message}`);
+    return res.status(500).json({
+      success: false,
+      message: `Failed to start session: ${e.message}`,
+      error: 'startup_failed',
+    });
+  } finally {
+    profileRelease();
+    // companyRelease();
+  }
+});
+
+/**
+ * POST /end-session
+ * Call once at the end of your n8n flow loop.
+ * Closes both browsers and resets all state.
+ */
+app.post('/end-session', async (req, res) => {
+  console.log('\n[SESSION] Ending session...');
+
+  const profileRelease = await profileLock.acquire();
+  // const companyRelease = await companyLock.acquire();
+
+  try {
+    await cleanupBrowsers();
+    console.log('[SESSION] ✓ All browsers closed');
+    return res.json({
+      success: true,
+      message: 'Session ended. All browsers have been closed.',
+    });
+  } catch (e) {
+    console.error(`[SESSION] Error ending session: ${e.message}`);
+    return res.status(500).json({
+      success: false,
+      message: `Failed to end session cleanly: ${e.message}`,
+      error: 'shutdown_failed',
+    });
+  } finally {
+    profileRelease();
+    // companyRelease();
+  }
+});
+
+// ─── Scraping routes ──────────────────────────────────────────────────────────
+
+/**
+ * POST /scrape
+ * Body: { profile_url: string, num_posts?: number }
+ * Requires an active session (call /start-session first).
+ */
 app.post('/scrape', async (req, res) => {
   const { profile_url, num_posts = 20 } = req.body ?? {};
 
@@ -271,20 +360,16 @@ app.post('/scrape', async (req, res) => {
     });
   }
 
+  if (!isInitializedProfile) {
+    return res.status(400).json({
+      success: false,
+      message: 'No active session. Call POST /start-session before scraping.',
+      error: 'session_not_started',
+    });
+  }
+
   const release = await profileLock.acquire();
   try {
-    if (!isInitializedProfile) {
-      console.log('[PROFILE] First request - initializing browser...');
-      const ok = await initProfileBrowser();
-      if (!ok) {
-        return res.status(500).json({
-          success: false,
-          message: 'Session invalid or cookies expired. Re-run save_cookies.js and upload fresh cookies.json.',
-          error: 'session_invalid',
-        });
-      }
-    }
-
     const posts = await scrapeProfilePosts(profile_url, num_posts);
     return res.json({
       success: true,
@@ -296,7 +381,6 @@ app.post('/scrape', async (req, res) => {
     });
   } catch (e) {
     console.error(`[PROFILE] Error: ${e.message}`);
-    isInitializedProfile = false;
     return res.status(500).json({
       success: false,
       profile_url,
@@ -308,6 +392,11 @@ app.post('/scrape', async (req, res) => {
   }
 });
 
+/**
+ * POST /scrape-company
+ * Body: { company_url: string, num_posts?: number }
+ * Requires an active session (call /start-session first).
+ */
 app.post('/scrape-company', async (req, res) => {
   const { company_url, num_posts = 20 } = req.body ?? {};
 
@@ -319,20 +408,16 @@ app.post('/scrape-company', async (req, res) => {
     });
   }
 
+  if (!isInitializedCompany) {
+    return res.status(400).json({
+      success: false,
+      message: 'No active session. Call POST /start-session before scraping.',
+      error: 'session_not_started',
+    });
+  }
+
   const release = await companyLock.acquire();
   try {
-    if (!isInitializedCompany) {
-      console.log('[COMPANY] First request - initializing browser...');
-      const ok = await initCompanyBrowser();
-      if (!ok) {
-        return res.status(500).json({
-          success: false,
-          message: 'Session invalid or cookies expired. Re-run save_cookies.js and upload fresh cookies.json.',
-          error: 'session_invalid',
-        });
-      }
-    }
-
     const posts = await scrapeCompanyPosts(company_url, num_posts);
     return res.json({
       success: true,
@@ -342,7 +427,6 @@ app.post('/scrape-company', async (req, res) => {
     });
   } catch (e) {
     console.error(`[COMPANY] Error: ${e.message}`);
-    isInitializedCompany = false;
     return res.status(500).json({
       success: false,
       company_url,
@@ -367,6 +451,12 @@ app.get('/health', (req, res) => {
 const PORT = 5000;
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Server running on http://0.0.0.0:${PORT}`);
+  console.log('Endpoints:');
+  console.log('  POST /start-session    → Start browsers (call once at flow start)');
+  console.log('  POST /scrape           → Scrape a profile');
+  console.log('  POST /scrape-company   → Scrape a company');
+  console.log('  POST /end-session      → Close browsers (call once at flow end)');
+  console.log('  GET  /health           → Check session status');
 });
 
 async function gracefulShutdown() {
